@@ -1,0 +1,10 @@
+python-telegram-bot==13.15
+tortoise-orm==0.19.3
+aiomysql==0.1.1
+redis==4.5.5
+python-dotenv==1.0.0
+moviepy==1.0.3
+aiofiles==23.1.0
+aiohttp==3.8.4
+pymysql==1.0.3
+cryptography==40.0.2
