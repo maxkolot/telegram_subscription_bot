@@ -104,13 +104,15 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
         # Close video clip
         video_clip.close()
         
-        # Send video as animation (circle)
+        # Send video as video note (circle)
         with open(output_file, 'rb') as video_file:
-            await context.bot.send_animation(
+            await context.bot.send_video_note(
                 chat_id=update.effective_chat.id,
-                animation=video_file,
-                caption=get_text("video_saved", user_lang)
+                video_note=video_file
             )
+            
+            # Send success message
+            await update.message.reply_text(get_text("video_saved", user_lang))
         
         # Delete temporary files
         try:
