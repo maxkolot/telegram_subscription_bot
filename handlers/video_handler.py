@@ -94,36 +94,64 @@ def process_video_sync(input_file, output_file, max_size=640):
         logging.error(f"Error in process_video_sync: {e}")
         return False
 
-def store_file_id(file_id):
+async def store_file_id(file_id, user_id):
     """
-    Store file_id in Redis or in-memory cache and return a short unique ID
+    Store file_id in database and return a short unique ID
     
     Args:
         file_id (str): The file_id to store
+        user_id (int): Telegram user ID
         
     Returns:
         str: A short unique ID for referencing the file_id
     """
+    from models.models import User, VideoCircle
+    
     # Generate a short unique ID
     short_id = str(uuid.uuid4())[:8]
     
     # Log for debugging
-    logging.info(f"Storing file_id with short_id: {short_id}")
+    logging.info(f"Storing file_id with short_id: {short_id} for user {user_id}")
     
-    # Try to store in Redis
     try:
-        redis_client.set(f"file_id:{short_id}", file_id, ex=86400)  # Expire after 24 hours
-        logging.info(f"Successfully stored file_id in Redis with key file_id:{short_id}")
+        # Get or create user
+        user, created = await User.get_or_create(telegram_id=user_id)
+        
+        # Create video circle record in database
+        await VideoCircle.create(
+            user=user,
+            file_id=file_id,
+            short_id=short_id,
+            status="created"
+        )
+        
+        logging.info(f"Successfully stored file_id in database with short_id: {short_id}")
+        
+        # Also store in Redis as a cache for faster access
+        try:
+            redis_client.set(f"file_id:{short_id}", file_id, ex=86400)  # Expire after 24 hours
+        except Exception as e:
+            logging.warning(f"Failed to store in Redis cache: {e}")
+            # Fallback to in-memory cache
+            file_id_cache[short_id] = file_id
+            
         return short_id
     except Exception as e:
-        logging.warning(f"Failed to store in Redis: {e}, using in-memory cache")
-        # Fallback to in-memory cache
-        file_id_cache[short_id] = file_id
+        logging.error(f"Error storing file_id in database: {e}")
+        
+        # Fallback to old method if database fails
+        try:
+            redis_client.set(f"file_id:{short_id}", file_id, ex=86400)
+            logging.info(f"Fallback: stored file_id in Redis with key file_id:{short_id}")
+        except Exception as redis_error:
+            logging.warning(f"Failed to store in Redis: {redis_error}, using in-memory cache")
+            file_id_cache[short_id] = file_id
+            
         return short_id
 
-def get_file_id(short_id):
+async def get_file_id(short_id):
     """
-    Retrieve file_id from Redis or in-memory cache
+    Retrieve file_id from database, Redis or in-memory cache
     
     Args:
         short_id (str): The short unique ID
@@ -131,10 +159,23 @@ def get_file_id(short_id):
     Returns:
         str: The original file_id or None if not found
     """
+    from models.models import VideoCircle
+    
     # Log for debugging
     logging.info(f"Retrieving file_id for short_id: {short_id}")
     
-    # Try to get from Redis
+    try:
+        # Try to get from database first
+        video_circle = await VideoCircle.filter(short_id=short_id).first()
+        if video_circle:
+            logging.info(f"Found file_id in database for short_id: {short_id}")
+            return video_circle.file_id
+        else:
+            logging.warning(f"No file_id found in database for short_id: {short_id}")
+    except Exception as e:
+        logging.error(f"Error retrieving from database: {e}, checking Redis and memory cache")
+    
+    # Try to get from Redis as fallback
     try:
         file_id = redis_client.get(f"file_id:{short_id}")
         if file_id:
@@ -228,13 +269,13 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
                 connect_timeout=60,
                 pool_timeout=60
             )
-            
-            # Get the file_id from the sent message
+                        # Get the file_id from the sent message
             if sent_message and hasattr(sent_message, 'video_note') and sent_message.video_note:
                 video_note_file_id = sent_message.video_note.file_id
                 
                 # Store file_id and get a short ID for callback data
-                short_id = store_file_id(video_note_file_id)
+                # Pass user_id to store in database
+                short_id = await store_file_id(video_note_file_id, user_id)
                 
                 # Create inline keyboard with Yes/No buttons using short ID
                 # Ensure callback_data is not too long (max 64 bytes)
@@ -250,7 +291,7 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
                             callback_data="sn"  # Shortened callback data
                         )
                     ]
-                ]
+                ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Send success message with share buttons
@@ -314,8 +355,8 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     # Log for debugging
     logging.info(f"Share yes callback with short_id: {short_id}")
     
-    # Get the original file_id
-    video_note_file_id = get_file_id(short_id)
+    # Get the original file_id from database
+    video_note_file_id = await get_file_id(short_id)
     
     # Log result of file_id lookup
     logging.info(f"Retrieved file_id for {short_id}: {'Found' if video_note_file_id else 'Not found'}")
@@ -325,6 +366,17 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
         logging.error(f"File ID not found for short_id: {short_id}")
         return
     
+    # Update video status in database
+    try:
+        from models.models import VideoCircle
+        video_circle = await VideoCircle.filter(short_id__startswith=short_id).first()
+        if video_circle:
+            video_circle.status = "pending"
+            await video_circle.save()
+            logging.info(f"Updated video status to 'pending' for short_id: {short_id}")
+    except Exception as e:
+        logging.error(f"Error updating video status in database: {e}")
+    
     # Send thank you message to user
     await query.edit_message_text(get_text("share_thanks", user_lang))
     
@@ -332,7 +384,8 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     user_info = f"{get_text('admin_new_video', user_lang)}\n{update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
     
     # Store file_id for admin buttons and get a new short ID
-    admin_short_id = store_file_id(video_note_file_id)
+    # We'll use the same short_id for admin to maintain consistency in database
+    admin_short_id = short_id
     
     # Create inline keyboard with publish/reject buttons using short ID
     # Ensure callback_data is not too long (max 64 bytes)
@@ -341,11 +394,11 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
         [
             InlineKeyboardButton(
                 get_text("admin_publish", user_lang), 
-                callback_data=f"p_{admin_short_id[:6]}_{user_id}"  # Shortened prefix and limited ID length
+                callback_data=f"p_{admin_short_id}_{user_id}"  # Shortened prefix and limited ID length
             ),
             InlineKeyboardButton(
                 get_text("admin_reject", user_lang), 
-                callback_data=f"r_{admin_short_id[:6]}_{user_id}"  # Shortened prefix and limited ID length
+                callback_data=f"r_{admin_short_id}_{user_id}"  # Shortened prefix and limited ID length
             )
         ]
     ]
@@ -399,11 +452,9 @@ async def share_no_callback(update: Update, context: CallbackContext) -> None:
         user_lang = "ru"
     
     # Send declined message
-    await query.edit_message_text(get_text("share_declined", user_lang))
-
-async def publish_callback(update: Update, context: CallbackContext) -> None:
+    await query.edit_message_text(get_text("share_declined", user_lang)async def reject_callback(update: Update, context: CallbackContext) -> None:
     """
-    Handle publish button callback
+    Handle reject button callback
     
     Args:
         update (Update): Telegram update object
@@ -414,36 +465,64 @@ async def publish_callback(update: Update, context: CallbackContext) -> None:
     
     admin_id = update.effective_user.id
     
-    # Get admin language from Redis or fallback to context
+    # Check if user is admin
+    if admin_id not in ADMIN_IDS:
+        return
+    
+    # Get admin language
     try:
         admin_lang = redis_client.get(f"user_lang:{admin_id}")
     except Exception:
-        # Fix: Safely access user_data with proper error handling
-        try:
-            admin_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
-        except Exception:
-            admin_lang = "ru"
+        admin_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
     
     if not admin_lang:
         admin_lang = "ru"
     
     # Extract short_id and user_id from callback data
-    # Format: p_<short_id>_<user_id> (shortened from publish_<short_id>_<user_id>)
+    # Format: r_<short_id>_<user_id> (shortened from reject_<short_id>_<user_id>)
     callback_data = query.data
-    parts = callback_data.split('_')
-    if len(parts) >= 3:
-        short_id = parts[1]
-        user_id = int(parts[2])
+    parts = callback_data.split("_")
+    if len(parts) < 3:
+        logging.error(f"Invalid callback data format: {callback_data}")
+        return
+    
+    short_id = parts[1]
+    user_id = int(parts[2])
+    
+    # Update video status in database
+    try:
+        from models.models import VideoCircle
+        video_circle = await VideoCircle.filter(short_id__startswith=short_id).first()
+        if video_circle:
+            video_circle.status = "rejected"
+            await video_circle.save()
+            logging.info(f"Updated video status to 'rejected' for short_id: {short_id}")
+    except Exception as e:
+        logging.error(f"Error updating video status in database: {e}")
+    
+    # Get user language
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = "ru"
+    
+    if not user_lang:
+        user_lang = "ru"r_video_expired", admin_lang))
+        logging.error(f"File ID not found for short_id: {short_id}")
+        return
         
-        # Get the original file_id
-        video_note_file_id = get_file_id(short_id)
+    # Update video status in database
+    try:
+        from models.models import VideoCircle
+        video_circle = await VideoCircle.filter(short_id__startswith=short_id).first()
+        if video_circle:
+            video_circle.status = "published"
+            await video_circle.save()
+            logging.info(f"Updated video status to 'published' for short_id: {short_id}")
+    except Exception as e:
+        logging.error(f"Error updating video status in database: {e}")
         
-        if not video_note_file_id:
-            await query.edit_message_text(get_text("error_video_expired", admin_lang))
-            logging.error(f"File ID not found for short_id: {short_id}")
-            return
-        
-        try:
+    try:
             # Publish video note to channel
             message = await context.bot.send_video_note(
                 chat_id=CHANNEL_ID,
