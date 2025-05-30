@@ -29,6 +29,9 @@ except Exception as e:
 # Admin user IDs - replace with actual admin IDs
 ADMIN_IDS = [123456789, 1340988413]  # Added user's ID from conversation
 
+# Channel ID for publishing circles
+CHANNEL_ID = -1002561514226
+
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """
     Handle video messages for circle creation
@@ -129,34 +132,40 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
             if sent_message and hasattr(sent_message, 'video_note') and sent_message.video_note:
                 video_note_file_id = sent_message.video_note.file_id
                 
-                # Send success message
-                await update.message.reply_text(get_text("video_saved", user_lang))
+                # Store video_note_file_id in context for later use
+                if 'user_data' not in context:
+                    context.user_data = {}
+                context.user_data[f"video_note_{user_id}"] = video_note_file_id
                 
-                # Send copy to all admins
-                user_info = f"От пользователя: {update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
-                for admin_id in ADMIN_IDS:
-                    if admin_id != user_id:  # Don't send to admin if they created the circle themselves
-                        try:
-                            # Send the video note to admin using file_id
-                            await context.bot.send_video_note(
-                                chat_id=admin_id,
-                                video_note=video_note_file_id
-                            )
-                            # Send user info to admin
-                            await context.bot.send_message(
-                                chat_id=admin_id,
-                                text=user_info
-                            )
-                        except Exception as e:
-                            logging.error(f"Error sending video to admin {admin_id}: {e}")
+                # Create inline keyboard with Yes/No buttons
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            get_text("share_yes", user_lang), 
+                            callback_data=f"share_yes_{video_note_file_id}"
+                        ),
+                        InlineKeyboardButton(
+                            get_text("share_no", user_lang), 
+                            callback_data="share_no"
+                        )
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Send success message with share buttons
+                await update.message.reply_text(
+                    get_text("video_saved", user_lang),
+                    reply_markup=reply_markup
+                )
             else:
                 logging.error("Failed to get video_note from sent message")
+                # Send simple success message without share buttons
+                await update.message.reply_text(get_text("video_saved", user_lang))
         
         # Delete temporary files
         try:
             os.remove(input_file)
             os.remove(output_file)
-            # Removed message about file cleanup as requested
         except Exception as e:
             logging.error(f"Error cleaning up files: {e}")
         
@@ -176,6 +185,238 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
                 os.remove(output_file)
         except Exception as cleanup_error:
             logging.error(f"Error cleaning up files after failure: {cleanup_error}")
+
+async def share_yes_callback(update: Update, context: CallbackContext) -> None:
+    """
+    Handle share yes button callback
+    
+    Args:
+        update (Update): Telegram update object
+        context (CallbackContext): Telegram context object
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
+    # Get user language from Redis or fallback to context
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = context.user_data.get("language", "ru")
+    
+    if not user_lang:
+        user_lang = "ru"
+    
+    # Extract video_note_file_id from callback data
+    # Format: share_yes_<file_id>
+    callback_data = query.data
+    video_note_file_id = callback_data[10:]  # Remove "share_yes_" prefix
+    
+    # Send thank you message to user
+    await query.edit_message_text(get_text("share_thanks", user_lang))
+    
+    # Send video to admins with publish/reject buttons
+    user_info = f"{get_text('admin_new_video', user_lang)}\n{update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
+    
+    # Create inline keyboard with publish/reject buttons
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                get_text("admin_publish", user_lang), 
+                callback_data=f"publish_{video_note_file_id}_{user_id}"
+            ),
+            InlineKeyboardButton(
+                get_text("admin_reject", user_lang), 
+                callback_data=f"reject_{video_note_file_id}_{user_id}"
+            )
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Send to all admins
+    for admin_id in ADMIN_IDS:
+        try:
+            # Send the video note to admin
+            await context.bot.send_video_note(
+                chat_id=admin_id,
+                video_note=video_note_file_id
+            )
+            # Send user info with buttons to admin
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=user_info,
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logging.error(f"Error sending video to admin {admin_id}: {e}")
+
+async def share_no_callback(update: Update, context: CallbackContext) -> None:
+    """
+    Handle share no button callback
+    
+    Args:
+        update (Update): Telegram update object
+        context (CallbackContext): Telegram context object
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
+    # Get user language from Redis or fallback to context
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = context.user_data.get("language", "ru")
+    
+    if not user_lang:
+        user_lang = "ru"
+    
+    # Send declined message
+    await query.edit_message_text(get_text("share_declined", user_lang))
+
+async def publish_callback(update: Update, context: CallbackContext) -> None:
+    """
+    Handle publish button callback
+    
+    Args:
+        update (Update): Telegram update object
+        context (CallbackContext): Telegram context object
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    admin_id = update.effective_user.id
+    
+    # Get admin language from Redis or fallback to context
+    try:
+        admin_lang = redis_client.get(f"user_lang:{admin_id}")
+    except Exception:
+        admin_lang = context.user_data.get("language", "ru")
+    
+    if not admin_lang:
+        admin_lang = "ru"
+    
+    # Extract video_note_file_id and user_id from callback data
+    # Format: publish_<file_id>_<user_id>
+    callback_data = query.data
+    parts = callback_data.split('_')
+    if len(parts) >= 3:
+        video_note_file_id = parts[1]
+        user_id = int(parts[2])
+        
+        try:
+            # Publish video note to channel
+            message = await context.bot.send_video_note(
+                chat_id=CHANNEL_ID,
+                video_note=video_note_file_id
+            )
+            
+            # Get message link
+            channel_post_link = f"https://t.me/c/{str(CHANNEL_ID)[4:]}/{message.message_id}"
+            
+            # Create inline keyboard with view in channel button
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        get_text("view_in_channel", admin_lang), 
+                        url=channel_post_link
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send published message to admin
+            await query.edit_message_text(
+                get_text("admin_published", admin_lang),
+                reply_markup=reply_markup
+            )
+            
+            # Get user language
+            try:
+                user_lang = redis_client.get(f"user_lang:{user_id}")
+            except Exception:
+                user_lang = "ru"
+            
+            if not user_lang:
+                user_lang = "ru"
+            
+            # Create inline keyboard with view in channel button for user
+            user_keyboard = [
+                [
+                    InlineKeyboardButton(
+                        get_text("view_in_channel", user_lang), 
+                        url=channel_post_link
+                    )
+                ]
+            ]
+            user_reply_markup = InlineKeyboardMarkup(user_keyboard)
+            
+            # Send published message to user
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=get_text("user_video_published", user_lang),
+                reply_markup=user_reply_markup
+            )
+            
+        except Exception as e:
+            logging.error(f"Error publishing video to channel: {e}")
+            await query.edit_message_text(f"Error: {str(e)}")
+    else:
+        logging.error(f"Invalid callback data format: {callback_data}")
+        await query.edit_message_text("Error: Invalid callback data format")
+
+async def reject_callback(update: Update, context: CallbackContext) -> None:
+    """
+    Handle reject button callback
+    
+    Args:
+        update (Update): Telegram update object
+        context (CallbackContext): Telegram context object
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    admin_id = update.effective_user.id
+    
+    # Get admin language from Redis or fallback to context
+    try:
+        admin_lang = redis_client.get(f"user_lang:{admin_id}")
+    except Exception:
+        admin_lang = context.user_data.get("language", "ru")
+    
+    if not admin_lang:
+        admin_lang = "ru"
+    
+    # Extract video_note_file_id and user_id from callback data
+    # Format: reject_<file_id>_<user_id>
+    callback_data = query.data
+    parts = callback_data.split('_')
+    if len(parts) >= 3:
+        video_note_file_id = parts[1]
+        user_id = int(parts[2])
+        
+        # Send rejected message to admin
+        await query.edit_message_text(get_text("admin_rejected", admin_lang))
+        
+        # Get user language
+        try:
+            user_lang = redis_client.get(f"user_lang:{user_id}")
+        except Exception:
+            user_lang = "ru"
+        
+        if not user_lang:
+            user_lang = "ru"
+        
+        # Send rejected message to user
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=get_text("user_video_rejected", user_lang)
+        )
+    else:
+        logging.error(f"Invalid callback data format: {callback_data}")
+        await query.edit_message_text("Error: Invalid callback data format")
 
 async def create_circle_callback(update: Update, context: CallbackContext) -> None:
     """
