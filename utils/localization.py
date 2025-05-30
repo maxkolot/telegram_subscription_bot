@@ -15,6 +15,7 @@ translations = {
         "create_circle_button": "Создать кружок",
         "create_circle_prank_button": "Создать кружок пранк",
         "send_video_prompt": "Отправьте видео для создания кружка (до 1 минуты).",
+        "upload_video_instruction": "Пожалуйста, загрузите видео, которое хотите преобразовать в кружок. Максимальная длительность - 1 минута.",
         "processing_video": "Обрабатываем ваше видео...",
         "video_too_long": "Видео слишком длинное. Максимальная длительность - 1 минута.",
         "video_processing_error": "Ошибка при обработке видео. Пожалуйста, попробуйте еще раз.",
@@ -25,14 +26,19 @@ translations = {
         "admin_delete_channel": "Удалить канал",
         "admin_back": "Назад",
         "admin_channel_name_prompt": "Введите название канала:",
-        "admin_channel_id_prompt": "Введите ID канала (например, @channel_name):",
-        "admin_channel_link_prompt": "Введите ссылку на канал:",
         "admin_button_text_prompt": "Введите текст кнопки для этого канала:",
+        "admin_forward_post_prompt": "Перешлите любой пост из канала, чтобы я мог получить ID канала:",
+        "admin_channel_link_prompt": "Введите ссылку на канал:",
         "admin_channel_added": "Канал успешно добавлен!",
         "admin_channel_updated": "Канал успешно обновлен!",
         "admin_channel_deleted": "Канал успешно удален!",
+        "admin_not_admin": "Вы не являетесь администратором этого канала. Пожалуйста, добавьте бота в администраторы канала и попробуйте снова.",
+        "admin_invalid_forward": "Пожалуйста, перешлите сообщение именно из канала, а не из личной переписки или группы.",
         "help_text": "Этот бот позволяет создавать видео-кружки и требует подписки на определенные каналы.\n\nКоманды:\n/start - Начать работу с ботом\n/help - Показать эту справку\n/admin - Панель администратора (только для админов)",
-        "feature_not_available": "Эта функция пока недоступна."
+        "feature_not_available": "Эта функция пока недоступна.",
+        "subscription_required": "НЕОЖИДАННО! Для использования бота необходимо подписаться на наши каналы.",
+        "video_saved": "Видео успешно сохранено как кружок!",
+        "video_cleanup": "Временные файлы удалены."
     },
     "en": {
         "welcome_message": "Welcome! To use this bot, you need to subscribe to our channels.",
@@ -45,6 +51,7 @@ translations = {
         "create_circle_button": "Create circle",
         "create_circle_prank_button": "Create circle prank",
         "send_video_prompt": "Send a video to create a circle (up to 1 minute).",
+        "upload_video_instruction": "Please upload a video you want to convert to a circle. Maximum duration is 1 minute.",
         "processing_video": "Processing your video...",
         "video_too_long": "Video is too long. Maximum duration is 1 minute.",
         "video_processing_error": "Error processing video. Please try again.",
@@ -55,14 +62,19 @@ translations = {
         "admin_delete_channel": "Delete channel",
         "admin_back": "Back",
         "admin_channel_name_prompt": "Enter channel name:",
-        "admin_channel_id_prompt": "Enter channel ID (e.g., @channel_name):",
-        "admin_channel_link_prompt": "Enter channel link:",
         "admin_button_text_prompt": "Enter button text for this channel:",
+        "admin_forward_post_prompt": "Forward any post from the channel so I can get the channel ID:",
+        "admin_channel_link_prompt": "Enter channel link:",
         "admin_channel_added": "Channel successfully added!",
         "admin_channel_updated": "Channel successfully updated!",
         "admin_channel_deleted": "Channel successfully deleted!",
+        "admin_not_admin": "You are not an administrator of this channel. Please add the bot as an administrator to the channel and try again.",
+        "admin_invalid_forward": "Please forward a message from a channel, not from a private chat or group.",
         "help_text": "This bot allows you to create video circles and requires subscription to certain channels.\n\nCommands:\n/start - Start working with the bot\n/help - Show this help\n/admin - Admin panel (admins only)",
-        "feature_not_available": "This feature is not available yet."
+        "feature_not_available": "This feature is not available yet.",
+        "subscription_required": "UNEXPECTED! To use this bot, you need to subscribe to our channels.",
+        "video_saved": "Video successfully saved as a circle!",
+        "video_cleanup": "Temporary files deleted."
     }
 }
 

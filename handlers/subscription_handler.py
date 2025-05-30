@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 import redis
+import logging
 from tortoise.exceptions import DoesNotExist
 
 from models.models import User, Channel, UserSubscription
@@ -8,13 +9,20 @@ from utils.localization import get_text
 from config.config import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD
 
 # Initialize Redis connection
-redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    db=REDIS_DB,
-    password=REDIS_PASSWORD,
-    decode_responses=True
-)
+try:
+    redis_client = redis.Redis(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASSWORD,
+        decode_responses=True,
+        socket_timeout=3,
+        socket_connect_timeout=3
+    )
+except Exception as e:
+    logging.warning(f"Redis connection failed: {e}")
+    # Create in-memory cache as fallback
+    redis_client = {}
 
 async def check_subscription(update: Update, context: CallbackContext, user_lang="ru") -> None:
     """
@@ -35,7 +43,12 @@ async def check_subscription(update: Update, context: CallbackContext, user_lang
     
     if created:
         # Update Redis cache with user language
-        redis_client.set(f"user_lang:{user_id}", user_lang)
+        try:
+            redis_client.set(f"user_lang:{user_id}", user_lang)
+        except Exception as e:
+            logging.warning(f"Redis set failed: {e}")
+            # Store in context.user_data as fallback
+            context.user_data["language"] = user_lang
     
     # Get all active channels
     channels = await Channel.filter(is_active=True)
@@ -74,6 +87,7 @@ async def check_subscription(update: Update, context: CallbackContext, user_lang
                 await subscription.save()
                 
         except Exception as e:
+            logging.error(f"Error checking subscription: {e}")
             # If error occurs, assume user is not subscribed
             all_subscribed = False
             unsubscribed_channels.append(channel)
@@ -105,8 +119,9 @@ async def check_subscription(update: Update, context: CallbackContext, user_lang
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # Use the special format for subscription message
         await update.effective_message.reply_text(
-            get_text("subscription_failed", user_lang),
+            get_text("subscription_required", user_lang),
             reply_markup=reply_markup
         )
 
@@ -122,7 +137,15 @@ async def subscription_callback(update: Update, context: CallbackContext) -> Non
     await query.answer()
     
     user_id = update.effective_user.id
-    user_lang = redis_client.get(f"user_lang:{user_id}") or "ru"
+    
+    # Get user language from Redis or fallback to context
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = context.user_data.get("language", "ru")
+    
+    if not user_lang:
+        user_lang = "ru"
     
     # Send checking message
     await query.edit_message_text(get_text("subscription_check", user_lang))
@@ -160,3 +183,47 @@ async def show_main_menu(update: Update, context: CallbackContext, user_lang="ru
         get_text("main_menu", user_lang),
         reply_markup=reply_markup
     )
+
+async def verify_subscription(user_id, context):
+    """
+    Verify if user is subscribed to all required channels
+    
+    Args:
+        user_id (int): Telegram user ID
+        context (CallbackContext): Telegram context object
+        
+    Returns:
+        bool: True if subscribed to all channels, False otherwise
+    """
+    try:
+        user = await User.get(telegram_id=user_id)
+        
+        # Get all active channels
+        channels = await Channel.filter(is_active=True)
+        
+        if not channels:
+            # If no channels to subscribe, return True
+            return True
+        
+        # Check if user is subscribed to all channels
+        for channel in channels:
+            try:
+                chat_member = await context.bot.get_chat_member(chat_id=channel.channel_id, user_id=user_id)
+                is_member = chat_member.status in ['member', 'administrator', 'creator']
+                
+                if not is_member:
+                    return False
+                    
+            except Exception as e:
+                logging.error(f"Error verifying subscription: {e}")
+                # If error occurs, assume user is not subscribed
+                return False
+        
+        return True
+        
+    except DoesNotExist:
+        # If user not found in database, return False
+        return False
+    except Exception as e:
+        logging.error(f"Error in verify_subscription: {e}")
+        return False

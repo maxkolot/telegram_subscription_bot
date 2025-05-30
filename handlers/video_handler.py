@@ -3,19 +3,28 @@ import tempfile
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 import redis
+import logging
 from moviepy.editor import VideoFileClip
 
 from utils.localization import get_text
 from config.config import REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD, MAX_VIDEO_DURATION, TEMP_DIRECTORY
+from handlers.subscription_handler import verify_subscription, check_subscription
 
 # Initialize Redis connection
-redis_client = redis.Redis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    db=REDIS_DB,
-    password=REDIS_PASSWORD,
-    decode_responses=True
-)
+try:
+    redis_client = redis.Redis(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        password=REDIS_PASSWORD,
+        decode_responses=True,
+        socket_timeout=3,
+        socket_connect_timeout=3
+    )
+except Exception as e:
+    logging.warning(f"Redis connection failed: {e}")
+    # Create in-memory cache as fallback
+    redis_client = {}
 
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """
@@ -26,15 +35,21 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
         context (CallbackContext): Telegram context object
     """
     user_id = update.effective_user.id
-    user_lang = redis_client.get(f"user_lang:{user_id}") or "ru"
     
-    # Check if user is subscribed
-    from models.models import User
-    user = await User.get_or_none(telegram_id=user_id)
+    # Get user language from Redis or fallback to context
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = context.user_data.get("language", "ru")
     
-    if not user or not user.subscription_status:
-        # If user is not subscribed, check subscription
-        from handlers.subscription_handler import check_subscription
+    if not user_lang:
+        user_lang = "ru"
+    
+    # Strict subscription check before processing video
+    is_subscribed = await verify_subscription(user_id, context)
+    
+    if not is_subscribed:
+        # If user is not subscribed, check subscription and show subscription message
         await check_subscription(update, context, user_lang)
         return
     
@@ -94,15 +109,16 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
             await context.bot.send_animation(
                 chat_id=update.effective_chat.id,
                 animation=video_file,
-                caption="🎬"
+                caption=get_text("video_saved", user_lang)
             )
         
         # Delete temporary files
         try:
             os.remove(input_file)
             os.remove(output_file)
-        except:
-            pass
+            await update.message.reply_text(get_text("video_cleanup", user_lang))
+        except Exception as e:
+            logging.error(f"Error cleaning up files: {e}")
         
         # Delete processing message
         await processing_message.delete()
@@ -110,7 +126,16 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         # If error occurs, send error message
         await processing_message.edit_text(get_text("video_processing_error", user_lang))
-        print(f"Error processing video: {e}")
+        logging.error(f"Error processing video: {e}")
+        
+        # Try to clean up files even if processing failed
+        try:
+            if os.path.exists(input_file):
+                os.remove(input_file)
+            if os.path.exists(output_file):
+                os.remove(output_file)
+        except Exception as cleanup_error:
+            logging.error(f"Error cleaning up files after failure: {cleanup_error}")
 
 async def create_circle_callback(update: Update, context: CallbackContext) -> None:
     """
@@ -124,10 +149,27 @@ async def create_circle_callback(update: Update, context: CallbackContext) -> No
     await query.answer()
     
     user_id = update.effective_user.id
-    user_lang = redis_client.get(f"user_lang:{user_id}") or "ru"
+    
+    # Get user language from Redis or fallback to context
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = context.user_data.get("language", "ru")
+    
+    if not user_lang:
+        user_lang = "ru"
+    
+    # Strict subscription check before showing upload instruction
+    is_subscribed = await verify_subscription(user_id, context)
+    
+    if not is_subscribed:
+        # If user is not subscribed, check subscription and show subscription message
+        await query.delete_message()
+        await check_subscription(update, context, user_lang)
+        return
     
     # Send instruction to send video
-    await query.edit_message_text(get_text("send_video_prompt", user_lang))
+    await query.edit_message_text(get_text("upload_video_instruction", user_lang))
 
 async def create_circle_prank_callback(update: Update, context: CallbackContext) -> None:
     """
@@ -141,7 +183,15 @@ async def create_circle_prank_callback(update: Update, context: CallbackContext)
     await query.answer()
     
     user_id = update.effective_user.id
-    user_lang = redis_client.get(f"user_lang:{user_id}") or "ru"
+    
+    # Get user language from Redis or fallback to context
+    try:
+        user_lang = redis_client.get(f"user_lang:{user_id}")
+    except Exception:
+        user_lang = context.user_data.get("language", "ru")
+    
+    if not user_lang:
+        user_lang = "ru"
     
     # Send feature not available message
     await query.edit_message_text(get_text("feature_not_available", user_lang))
