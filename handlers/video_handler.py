@@ -1,5 +1,7 @@
 import os
 import tempfile
+import asyncio
+import concurrent.futures
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 import redis
@@ -31,6 +33,62 @@ ADMIN_IDS = [1340988413]  # Added user's ID from conversation
 
 # Channel ID for publishing circles
 CHANNEL_ID = -1002561514226
+
+# Create a thread pool executor for CPU-bound tasks
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+def process_video_sync(input_file, output_file, max_size=640):
+    """
+    Process video synchronously in a separate thread to avoid blocking the event loop
+    
+    Args:
+        input_file (str): Path to input video file
+        output_file (str): Path to output video file
+        max_size (int): Maximum size for width and height
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Process video to create circle
+        video_clip = VideoFileClip(input_file)
+        
+        # Crop video to square if needed
+        if video_clip.w != video_clip.h:
+            # Get minimum dimension
+            min_dim = min(video_clip.w, video_clip.h)
+            
+            # Calculate crop coordinates
+            x_center = video_clip.w / 2
+            y_center = video_clip.h / 2
+            
+            # Crop to square
+            video_clip = video_clip.crop(
+                x1=x_center - min_dim/2,
+                y1=y_center - min_dim/2,
+                x2=x_center + min_dim/2,
+                y2=y_center + min_dim/2
+            )
+        
+        # Resize to max size if larger
+        if video_clip.w > max_size:
+            video_clip = video_clip.resize(width=max_size, height=max_size)
+        
+        # Write output file with proper codec for video note
+        video_clip.write_videofile(
+            output_file, 
+            codec="libx264", 
+            audio_codec="aac",
+            preset="ultrafast",  # Fastest encoding
+            ffmpeg_params=["-pix_fmt", "yuv420p", "-threads", "4"]  # Ensure compatibility and use multiple threads
+        )
+        
+        # Close video clip
+        video_clip.close()
+        return True
+    except Exception as e:
+        logging.error(f"Error in process_video_sync: {e}")
+        return False
 
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """
@@ -74,62 +132,37 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
     # Send processing message
     processing_message = await update.message.reply_text(get_text("processing_video", user_lang))
     
+    # Create temp directory if not exists
+    os.makedirs(TEMP_DIRECTORY, exist_ok=True)
+    
+    # Create temporary files for input and output
+    input_file = os.path.join(TEMP_DIRECTORY, f"input_{user_id}_{video.file_id}.mp4")
+    output_file = os.path.join(TEMP_DIRECTORY, f"output_{user_id}_{video.file_id}.mp4")
+    
     try:
         # Download video file
         video_file = await context.bot.get_file(video.file_id)
         
-        # Create temp directory if not exists
-        os.makedirs(TEMP_DIRECTORY, exist_ok=True)
-        
-        # Create temporary files for input and output
-        input_file = os.path.join(TEMP_DIRECTORY, f"input_{user_id}_{video.file_id}.mp4")
-        output_file = os.path.join(TEMP_DIRECTORY, f"output_{user_id}_{video.file_id}.mp4")
-        
         # Download video to temp file
         await video_file.download_to_drive(input_file)
         
-        # Process video to create circle
-        video_clip = VideoFileClip(input_file)
+        # Process video in a separate thread to avoid blocking the event loop
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(executor, process_video_sync, input_file, output_file)
         
-        # Crop video to square if needed
-        if video_clip.w != video_clip.h:
-            # Get minimum dimension
-            min_dim = min(video_clip.w, video_clip.h)
-            
-            # Calculate crop coordinates
-            x_center = video_clip.w / 2
-            y_center = video_clip.h / 2
-            
-            # Crop to square
-            video_clip = video_clip.crop(
-                x1=x_center - min_dim/2,
-                y1=y_center - min_dim/2,
-                x2=x_center + min_dim/2,
-                y2=y_center + min_dim/2
-            )
-        
-        # Resize to max 640x640 if larger (Telegram's recommended size for video notes)
-        if video_clip.w > 640:
-            video_clip = video_clip.resize(width=640, height=640)
-        
-        # Write output file with proper codec for video note
-        video_clip.write_videofile(
-            output_file, 
-            codec="libx264", 
-            audio_codec="aac",
-            preset="fast",  # Faster encoding
-            ffmpeg_params=["-pix_fmt", "yuv420p"]  # Ensure compatibility
-        )
-        
-        # Close video clip
-        video_clip.close()
+        if not success:
+            raise Exception("Video processing failed")
         
         # Send video as video note (circle) to user
         with open(output_file, 'rb') as video_file:
             # Send to user
             sent_message = await context.bot.send_video_note(
                 chat_id=update.effective_chat.id,
-                video_note=video_file
+                video_note=video_file,
+                read_timeout=60,  # Increase timeout for large files
+                write_timeout=60,
+                connect_timeout=60,
+                pool_timeout=60
             )
             
             # Get the file_id from the sent message
@@ -168,13 +201,6 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
                 # Send simple success message without share buttons
                 await update.message.reply_text(get_text("video_saved", user_lang))
         
-        # Delete temporary files
-        try:
-            os.remove(input_file)
-            os.remove(output_file)
-        except Exception as e:
-            logging.error(f"Error cleaning up files: {e}")
-        
         # Delete processing message
         await processing_message.delete()
         
@@ -182,15 +208,15 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
         # If error occurs, send error message
         await processing_message.edit_text(get_text("video_processing_error", user_lang))
         logging.error(f"Error processing video: {e}")
-        
-        # Try to clean up files even if processing failed
+    finally:
+        # Always clean up files in finally block to ensure they're deleted
         try:
-            if 'input_file' in locals() and os.path.exists(input_file):
+            if os.path.exists(input_file):
                 os.remove(input_file)
-            if 'output_file' in locals() and os.path.exists(output_file):
+            if os.path.exists(output_file):
                 os.remove(output_file)
         except Exception as cleanup_error:
-            logging.error(f"Error cleaning up files after failure: {cleanup_error}")
+            logging.error(f"Error cleaning up files: {cleanup_error}")
 
 async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     """
@@ -250,7 +276,11 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
             # Send the video note to admin
             await context.bot.send_video_note(
                 chat_id=admin_id,
-                video_note=video_note_file_id
+                video_note=video_note_file_id,
+                read_timeout=60,  # Increase timeout for large files
+                write_timeout=60,
+                connect_timeout=60,
+                pool_timeout=60
             )
             # Send user info with buttons to admin
             await context.bot.send_message(
@@ -328,7 +358,11 @@ async def publish_callback(update: Update, context: CallbackContext) -> None:
             # Publish video note to channel
             message = await context.bot.send_video_note(
                 chat_id=CHANNEL_ID,
-                video_note=video_note_file_id
+                video_note=video_note_file_id,
+                read_timeout=60,  # Increase timeout for large files
+                write_timeout=60,
+                connect_timeout=60,
+                pool_timeout=60
             )
             
             # Get message link
