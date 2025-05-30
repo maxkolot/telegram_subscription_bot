@@ -27,7 +27,7 @@ except Exception as e:
     redis_client = {}
 
 # Admin user IDs - replace with actual admin IDs
-ADMIN_IDS = [123456789, 1340988413]  # Added user's ID from conversation
+ADMIN_IDS = [1340988413]  # Added user's ID from conversation
 
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """

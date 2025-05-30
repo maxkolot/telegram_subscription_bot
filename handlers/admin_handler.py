@@ -24,7 +24,7 @@ except Exception as e:
     redis_client = {}
 
 # Admin user IDs - replace with actual admin IDs
-ADMIN_IDS = [123456789, 1340988413]  # Added user's ID from conversation
+ADMIN_IDS = [1340988413]  # Added user's ID from conversation
 
 # FSM states
 (CHANNEL_NAME, BUTTON_TEXT, FORWARD_POST, CHANNEL_LINK) = range(4)
