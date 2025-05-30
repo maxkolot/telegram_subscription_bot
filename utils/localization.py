@@ -37,8 +37,21 @@ translations = {
         "help_text": "Этот бот позволяет создавать видео-кружки и требует подписки на определенные каналы.\n\nКоманды:\n/start - Начать работу с ботом\n/help - Показать эту справку\n/admin - Панель администратора (только для админов)",
         "feature_not_available": "Эта функция пока недоступна.",
         "subscription_required": "НЕОЖИДАННО! Для использования бота необходимо подписаться на наши каналы.",
-        "video_saved": "Видео успешно сохранено как кружок!",
-        "video_cleanup": "Временные файлы удалены."
+        "video_saved": "Вау ваше видео получилось очень прикольное, хотите поделиться им в нашем канале с кружочками?",
+        "video_cleanup": "Временные файлы удалены.",
+        "share_yes": "Да",
+        "share_no": "Нет",
+        "share_thanks": "Спасибо! Ваш кружок отправлен на модерацию.",
+        "share_declined": "Хорошо, ваш кружок не будет опубликован в канале.",
+        "admin_publish": "Опубликовать",
+        "admin_reject": "Отклонить",
+        "admin_new_video": "Новый кружок от пользователя для публикации:",
+        "admin_published": "Кружок опубликован в канале!",
+        "admin_rejected": "Кружок отклонен.",
+        "user_video_published": "Мы опубликовали ваш кружок!",
+        "user_video_rejected": "К сожалению, ваш кружок не был одобрен для публикации.",
+        "view_in_channel": "Смотреть в канале",
+        "error_video_expired": "Извините, видео больше недоступно. Пожалуйста, загрузите новое видео."
     },
     "en": {
         "welcome_message": "Welcome! To use this bot, you need to subscribe to our channels.",
@@ -73,8 +86,21 @@ translations = {
         "help_text": "This bot allows you to create video circles and requires subscription to certain channels.\n\nCommands:\n/start - Start working with the bot\n/help - Show this help\n/admin - Admin panel (admins only)",
         "feature_not_available": "This feature is not available yet.",
         "subscription_required": "UNEXPECTED! To use this bot, you need to subscribe to our channels.",
-        "video_saved": "Video successfully saved as a circle!",
-        "video_cleanup": "Temporary files deleted."
+        "video_saved": "Wow, your video turned out really cool! Would you like to share it in our circle video channel?",
+        "video_cleanup": "Temporary files deleted.",
+        "share_yes": "Yes",
+        "share_no": "No",
+        "share_thanks": "Thank you! Your circle has been sent for moderation.",
+        "share_declined": "Okay, your circle won't be published in the channel.",
+        "admin_publish": "Publish",
+        "admin_reject": "Reject",
+        "admin_new_video": "New circle from user for publication:",
+        "admin_published": "Circle published in the channel!",
+        "admin_rejected": "Circle rejected.",
+        "user_video_published": "We've published your circle!",
+        "user_video_rejected": "Unfortunately, your circle was not approved for publication.",
+        "view_in_channel": "View in channel",
+        "error_video_expired": "Sorry, the video is no longer available. Please upload a new video."
     }
 }
 

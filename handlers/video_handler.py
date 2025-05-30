@@ -107,11 +107,16 @@ def store_file_id(file_id):
     # Generate a short unique ID
     short_id = str(uuid.uuid4())[:8]
     
+    # Log for debugging
+    logging.info(f"Storing file_id with short_id: {short_id}")
+    
     # Try to store in Redis
     try:
         redis_client.set(f"file_id:{short_id}", file_id, ex=86400)  # Expire after 24 hours
+        logging.info(f"Successfully stored file_id in Redis with key file_id:{short_id}")
         return short_id
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Failed to store in Redis: {e}, using in-memory cache")
         # Fallback to in-memory cache
         file_id_cache[short_id] = file_id
         return short_id
@@ -126,16 +131,28 @@ def get_file_id(short_id):
     Returns:
         str: The original file_id or None if not found
     """
+    # Log for debugging
+    logging.info(f"Retrieving file_id for short_id: {short_id}")
+    
     # Try to get from Redis
     try:
         file_id = redis_client.get(f"file_id:{short_id}")
         if file_id:
+            logging.info(f"Found file_id in Redis for short_id: {short_id}")
             return file_id
-    except Exception:
-        pass
+        else:
+            logging.warning(f"No file_id found in Redis for short_id: {short_id}")
+    except Exception as e:
+        logging.warning(f"Error retrieving from Redis: {e}, checking in-memory cache")
     
     # Fallback to in-memory cache
-    return file_id_cache.get(short_id)
+    file_id = file_id_cache.get(short_id)
+    if file_id:
+        logging.info(f"Found file_id in memory cache for short_id: {short_id}")
+    else:
+        logging.warning(f"No file_id found in memory cache for short_id: {short_id}")
+    
+    return file_id
 
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """
@@ -294,8 +311,14 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     callback_data = query.data
     short_id = callback_data[3:]  # Remove "sy_" prefix
     
+    # Log for debugging
+    logging.info(f"Share yes callback with short_id: {short_id}")
+    
     # Get the original file_id
     video_note_file_id = get_file_id(short_id)
+    
+    # Log result of file_id lookup
+    logging.info(f"Retrieved file_id for {short_id}: {'Found' if video_note_file_id else 'Not found'}")
     
     if not video_note_file_id:
         await query.edit_message_text(get_text("error_video_expired", user_lang))
