@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageOriginChannel
 from telegram.ext import CallbackContext, ConversationHandler
 import redis
 import logging
@@ -233,13 +233,13 @@ async def admin_forward_handler(update: Update, context: CallbackContext) -> Non
     if "admin_state" not in context.user_data or context.user_data["admin_state"] != FORWARD_POST:
         return
     
-    # Check if message is forwarded from channel
-    if not update.message.forward_from_chat or update.message.forward_from_chat.type != "channel":
+    # Check if message is forwarded from channel using forward_origin (python-telegram-bot v20+)
+    if not hasattr(update.message, 'forward_origin') or not isinstance(update.message.forward_origin, MessageOriginChannel):
         await update.message.reply_text(get_text("admin_invalid_forward", user_lang))
         return
     
-    # Get channel ID
-    channel_id = update.message.forward_from_chat.id
+    # Get channel ID from forward_origin
+    channel_id = update.message.forward_origin.chat.id
     
     # Check if user is admin of the channel
     try:
