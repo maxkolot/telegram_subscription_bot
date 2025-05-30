@@ -27,7 +27,7 @@ except Exception as e:
     redis_client = {}
 
 # Admin user IDs - replace with actual admin IDs
-ADMIN_IDS = [123456789, 1340988413]  # Added user's ID from conversation
+ADMIN_IDS = [1340988413]  # Added user's ID from conversation
 
 # Channel ID for publishing circles
 CHANNEL_ID = -1002561514226
@@ -46,7 +46,11 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
     try:
         user_lang = redis_client.get(f"user_lang:{user_id}")
     except Exception:
-        user_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            user_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            user_lang = "ru"
     
     if not user_lang:
         user_lang = "ru"
@@ -132,10 +136,12 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
             if sent_message and hasattr(sent_message, 'video_note') and sent_message.video_note:
                 video_note_file_id = sent_message.video_note.file_id
                 
-                # Store video_note_file_id in context for later use
-                if 'user_data' not in context:
-                    context.user_data = {}
-                context.user_data[f"video_note_{user_id}"] = video_note_file_id
+                # Fix: Safely store video_note_file_id in context
+                try:
+                    if hasattr(context, "user_data"):
+                        context.user_data[f"video_note_{user_id}"] = video_note_file_id
+                except Exception as e:
+                    logging.error(f"Error storing video_note_file_id in context: {e}")
                 
                 # Create inline keyboard with Yes/No buttons
                 keyboard = [
@@ -179,9 +185,9 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
         
         # Try to clean up files even if processing failed
         try:
-            if os.path.exists(input_file):
+            if 'input_file' in locals() and os.path.exists(input_file):
                 os.remove(input_file)
-            if os.path.exists(output_file):
+            if 'output_file' in locals() and os.path.exists(output_file):
                 os.remove(output_file)
         except Exception as cleanup_error:
             logging.error(f"Error cleaning up files after failure: {cleanup_error}")
@@ -203,7 +209,11 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     try:
         user_lang = redis_client.get(f"user_lang:{user_id}")
     except Exception:
-        user_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            user_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            user_lang = "ru"
     
     if not user_lang:
         user_lang = "ru"
@@ -268,7 +278,11 @@ async def share_no_callback(update: Update, context: CallbackContext) -> None:
     try:
         user_lang = redis_client.get(f"user_lang:{user_id}")
     except Exception:
-        user_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            user_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            user_lang = "ru"
     
     if not user_lang:
         user_lang = "ru"
@@ -293,7 +307,11 @@ async def publish_callback(update: Update, context: CallbackContext) -> None:
     try:
         admin_lang = redis_client.get(f"user_lang:{admin_id}")
     except Exception:
-        admin_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            admin_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            admin_lang = "ru"
     
     if not admin_lang:
         admin_lang = "ru"
@@ -384,7 +402,11 @@ async def reject_callback(update: Update, context: CallbackContext) -> None:
     try:
         admin_lang = redis_client.get(f"user_lang:{admin_id}")
     except Exception:
-        admin_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            admin_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            admin_lang = "ru"
     
     if not admin_lang:
         admin_lang = "ru"
@@ -435,7 +457,11 @@ async def create_circle_callback(update: Update, context: CallbackContext) -> No
     try:
         user_lang = redis_client.get(f"user_lang:{user_id}")
     except Exception:
-        user_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            user_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            user_lang = "ru"
     
     if not user_lang:
         user_lang = "ru"
@@ -469,7 +495,11 @@ async def create_circle_prank_callback(update: Update, context: CallbackContext)
     try:
         user_lang = redis_client.get(f"user_lang:{user_id}")
     except Exception:
-        user_lang = context.user_data.get("language", "ru")
+        # Fix: Safely access user_data with proper error handling
+        try:
+            user_lang = context.user_data.get("language", "ru") if hasattr(context, "user_data") else "ru"
+        except Exception:
+            user_lang = "ru"
     
     if not user_lang:
         user_lang = "ru"
