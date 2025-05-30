@@ -272,22 +272,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """Log errors caused by Updates."""
     logger.warning(f'Update "{update}" caused error "{context.error}"')
 
-def main() -> None:
-    """Start the bot."""
-    # Try to start Redis server
-    start_redis_server()
-    
-    # Initialize Redis client
-    init_redis()
-    
-    # Initialize database
-    try:
-        asyncio.run(run_init_db())
-    except RuntimeError:
-        # For older Python versions or if there's already a running event loop
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(run_init_db())
-    
+async def run_bot():
+    """Run the bot with proper async setup"""
     # Create the Application and pass it your bot's token
     application = Application.builder().token(BOT_TOKEN).build()
 
@@ -317,16 +303,57 @@ def main() -> None:
     # Log all errors
     application.add_error_handler(error_handler)
     
-    # Register signal handlers for cleanup
-    signal.signal(signal.SIGINT, lambda sig, frame: cleanup())
-    signal.signal(signal.SIGTERM, lambda sig, frame: cleanup())
-    
     # Start the Bot
     logger.info("Starting bot...")
-    application.run_polling()
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
     
-    # Cleanup on exit
-    cleanup()
+    # Run the bot until the user presses Ctrl-C
+    logger.info("Bot is running. Press Ctrl+C to stop.")
+    
+    # Keep the bot running
+    try:
+        # Keep the main task running
+        while True:
+            await asyncio.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped by user request")
+    finally:
+        # Stop the bot gracefully
+        await application.stop()
+        await application.updater.stop()
+        await application.shutdown()
+        
+        # Cleanup resources
+        cleanup()
+
+def main() -> None:
+    """Start the bot with proper event loop handling for Python 3.13+"""
+    # Try to start Redis server
+    start_redis_server()
+    
+    # Initialize Redis client
+    init_redis()
+    
+    # Initialize database
+    try:
+        # Create and set event loop explicitly for Python 3.13+ compatibility
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run database initialization
+        loop.run_until_complete(run_init_db())
+        
+        # Run the bot
+        loop.run_until_complete(run_bot())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user request")
+    except Exception as e:
+        logger.error(f"Error running bot: {e}", exc_info=True)
+    finally:
+        # Cleanup on exit
+        cleanup()
 
 if __name__ == '__main__':
     main()
