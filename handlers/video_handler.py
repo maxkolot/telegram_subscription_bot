@@ -101,39 +101,56 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
                 y2=y_center + min_dim/2
             )
         
-        # Write output file
-        video_clip.write_videofile(output_file, codec="libx264", audio_codec="aac")
+        # Resize to max 640x640 if larger (Telegram's recommended size for video notes)
+        if video_clip.w > 640:
+            video_clip = video_clip.resize(width=640, height=640)
+        
+        # Write output file with proper codec for video note
+        video_clip.write_videofile(
+            output_file, 
+            codec="libx264", 
+            audio_codec="aac",
+            preset="fast",  # Faster encoding
+            ffmpeg_params=["-pix_fmt", "yuv420p"]  # Ensure compatibility
+        )
         
         # Close video clip
         video_clip.close()
         
         # Send video as video note (circle) to user
         with open(output_file, 'rb') as video_file:
-            sent_video = await context.bot.send_video_note(
+            # Send to user
+            sent_message = await context.bot.send_video_note(
                 chat_id=update.effective_chat.id,
                 video_note=video_file
             )
             
-            # Send success message
-            await update.message.reply_text(get_text("video_saved", user_lang))
-            
-            # Send copy to all admins
-            user_info = f"От пользователя: {update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
-            for admin_id in ADMIN_IDS:
-                if admin_id != user_id:  # Don't send to admin if they created the circle themselves
-                    try:
-                        # Forward the video note to admin
-                        await context.bot.send_video_note(
-                            chat_id=admin_id,
-                            video_note=sent_video.video_note.file_id
-                        )
-                        # Send user info to admin
-                        await context.bot.send_message(
-                            chat_id=admin_id,
-                            text=user_info
-                        )
-                    except Exception as e:
-                        logging.error(f"Error sending video to admin {admin_id}: {e}")
+            # Get the file_id from the sent message
+            if sent_message and hasattr(sent_message, 'video_note') and sent_message.video_note:
+                video_note_file_id = sent_message.video_note.file_id
+                
+                # Send success message
+                await update.message.reply_text(get_text("video_saved", user_lang))
+                
+                # Send copy to all admins
+                user_info = f"От пользователя: {update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
+                for admin_id in ADMIN_IDS:
+                    if admin_id != user_id:  # Don't send to admin if they created the circle themselves
+                        try:
+                            # Send the video note to admin using file_id
+                            await context.bot.send_video_note(
+                                chat_id=admin_id,
+                                video_note=video_note_file_id
+                            )
+                            # Send user info to admin
+                            await context.bot.send_message(
+                                chat_id=admin_id,
+                                text=user_info
+                            )
+                        except Exception as e:
+                            logging.error(f"Error sending video to admin {admin_id}: {e}")
+            else:
+                logging.error("Failed to get video_note from sent message")
         
         # Delete temporary files
         try:
