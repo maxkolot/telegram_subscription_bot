@@ -62,6 +62,9 @@ async def check_subscription(update: Update, context: CallbackContext, user_lang
     all_subscribed = True
     unsubscribed_channels = []
     
+    # Store previous subscription status to detect changes
+    was_subscribed_before = user.subscription_status
+    
     for channel in channels:
         # Check if user is member of the channel
         try:
@@ -97,8 +100,11 @@ async def check_subscription(update: Update, context: CallbackContext, user_lang
     await user.save()
     
     if all_subscribed:
-        # If user is subscribed to all channels, show main menu
-        await update.effective_message.reply_text(get_text("subscription_success", user_lang))
+        # Only show thank you message if user wasn't subscribed before but is now
+        if not was_subscribed_before:
+            await update.effective_message.reply_text(get_text("subscription_success", user_lang))
+        
+        # Show main menu
         await show_main_menu(update, context, user_lang)
     else:
         # If user is not subscribed to all channels, show subscription buttons

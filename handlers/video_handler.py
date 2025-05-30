@@ -26,6 +26,9 @@ except Exception as e:
     # Create in-memory cache as fallback
     redis_client = {}
 
+# Admin user IDs - replace with actual admin IDs
+ADMIN_IDS = [123456789, 1340988413]  # Added user's ID from conversation
+
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """
     Handle video messages for circle creation
@@ -104,21 +107,39 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
         # Close video clip
         video_clip.close()
         
-        # Send video as video note (circle)
+        # Send video as video note (circle) to user
         with open(output_file, 'rb') as video_file:
-            await context.bot.send_video_note(
+            sent_video = await context.bot.send_video_note(
                 chat_id=update.effective_chat.id,
                 video_note=video_file
             )
             
             # Send success message
             await update.message.reply_text(get_text("video_saved", user_lang))
+            
+            # Send copy to all admins
+            user_info = f"От пользователя: {update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
+            for admin_id in ADMIN_IDS:
+                if admin_id != user_id:  # Don't send to admin if they created the circle themselves
+                    try:
+                        # Forward the video note to admin
+                        await context.bot.send_video_note(
+                            chat_id=admin_id,
+                            video_note=sent_video.video_note.file_id
+                        )
+                        # Send user info to admin
+                        await context.bot.send_message(
+                            chat_id=admin_id,
+                            text=user_info
+                        )
+                    except Exception as e:
+                        logging.error(f"Error sending video to admin {admin_id}: {e}")
         
         # Delete temporary files
         try:
             os.remove(input_file)
             os.remove(output_file)
-            await update.message.reply_text(get_text("video_cleanup", user_lang))
+            # Removed message about file cleanup as requested
         except Exception as e:
             logging.error(f"Error cleaning up files: {e}")
         
