@@ -17,7 +17,10 @@ from config.config import BOT_TOKEN, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PAS
 from database.db_setup import init_db
 from handlers.language_handler import language_handler, language_callback
 from handlers.subscription_handler import check_subscription, subscription_callback
-from handlers.video_handler import video_handler, create_circle_callback, create_circle_prank_callback
+from handlers.video_handler import (
+    video_handler, create_circle_callback, create_circle_prank_callback,
+    share_yes_callback, share_no_callback, publish_callback, reject_callback
+)
 from handlers.admin_handler import admin_handler, admin_callback, admin_message_handler, admin_forward_handler
 from utils.localization import get_text
 
@@ -290,6 +293,14 @@ async def run_bot():
     # Menu handlers
     application.add_handler(CallbackQueryHandler(create_circle_callback, pattern=r'^create_circle$'))
     application.add_handler(CallbackQueryHandler(create_circle_prank_callback, pattern=r'^create_circle_prank$'))
+    
+    # Share video handlers
+    application.add_handler(CallbackQueryHandler(share_yes_callback, pattern=r'^share_yes_'))
+    application.add_handler(CallbackQueryHandler(share_no_callback, pattern=r'^share_no$'))
+    
+    # Admin moderation handlers
+    application.add_handler(CallbackQueryHandler(publish_callback, pattern=r'^publish_'))
+    application.add_handler(CallbackQueryHandler(reject_callback, pattern=r'^reject_'))
     
     # Admin panel handlers
     application.add_handler(CommandHandler("admin", admin_handler))
