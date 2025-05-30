@@ -2,6 +2,7 @@ import os
 import tempfile
 import asyncio
 import concurrent.futures
+import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 import redis
@@ -36,6 +37,9 @@ CHANNEL_ID = -1002561514226
 
 # Create a thread pool executor for CPU-bound tasks
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+# In-memory cache for file_ids when Redis is not available
+file_id_cache = {}
 
 def process_video_sync(input_file, output_file, max_size=640):
     """
@@ -89,6 +93,49 @@ def process_video_sync(input_file, output_file, max_size=640):
     except Exception as e:
         logging.error(f"Error in process_video_sync: {e}")
         return False
+
+def store_file_id(file_id):
+    """
+    Store file_id in Redis or in-memory cache and return a short unique ID
+    
+    Args:
+        file_id (str): The file_id to store
+        
+    Returns:
+        str: A short unique ID for referencing the file_id
+    """
+    # Generate a short unique ID
+    short_id = str(uuid.uuid4())[:8]
+    
+    # Try to store in Redis
+    try:
+        redis_client.set(f"file_id:{short_id}", file_id, ex=86400)  # Expire after 24 hours
+        return short_id
+    except Exception:
+        # Fallback to in-memory cache
+        file_id_cache[short_id] = file_id
+        return short_id
+
+def get_file_id(short_id):
+    """
+    Retrieve file_id from Redis or in-memory cache
+    
+    Args:
+        short_id (str): The short unique ID
+        
+    Returns:
+        str: The original file_id or None if not found
+    """
+    # Try to get from Redis
+    try:
+        file_id = redis_client.get(f"file_id:{short_id}")
+        if file_id:
+            return file_id
+    except Exception:
+        pass
+    
+    # Fallback to in-memory cache
+    return file_id_cache.get(short_id)
 
 async def video_handler(update: Update, context: CallbackContext) -> None:
     """
@@ -169,23 +216,21 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
             if sent_message and hasattr(sent_message, 'video_note') and sent_message.video_note:
                 video_note_file_id = sent_message.video_note.file_id
                 
-                # Fix: Safely store video_note_file_id in context
-                try:
-                    if hasattr(context, "user_data"):
-                        context.user_data[f"video_note_{user_id}"] = video_note_file_id
-                except Exception as e:
-                    logging.error(f"Error storing video_note_file_id in context: {e}")
+                # Store file_id and get a short ID for callback data
+                short_id = store_file_id(video_note_file_id)
                 
-                # Create inline keyboard with Yes/No buttons
+                # Create inline keyboard with Yes/No buttons using short ID
+                # Ensure callback_data is not too long (max 64 bytes)
+                # Use a shorter prefix to save space
                 keyboard = [
                     [
                         InlineKeyboardButton(
                             get_text("share_yes", user_lang), 
-                            callback_data=f"share_yes_{video_note_file_id}"
+                            callback_data=f"sy_{short_id[:6]}"  # Shortened prefix and limited ID length
                         ),
                         InlineKeyboardButton(
                             get_text("share_no", user_lang), 
-                            callback_data="share_no"
+                            callback_data="sn"  # Shortened callback data
                         )
                     ]
                 ]
@@ -244,10 +289,18 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     if not user_lang:
         user_lang = "ru"
     
-    # Extract video_note_file_id from callback data
-    # Format: share_yes_<file_id>
+    # Extract short_id from callback data
+    # Format: sy_<short_id> (shortened from share_yes_<short_id>)
     callback_data = query.data
-    video_note_file_id = callback_data[10:]  # Remove "share_yes_" prefix
+    short_id = callback_data[3:]  # Remove "sy_" prefix
+    
+    # Get the original file_id
+    video_note_file_id = get_file_id(short_id)
+    
+    if not video_note_file_id:
+        await query.edit_message_text(get_text("error_video_expired", user_lang))
+        logging.error(f"File ID not found for short_id: {short_id}")
+        return
     
     # Send thank you message to user
     await query.edit_message_text(get_text("share_thanks", user_lang))
@@ -255,16 +308,21 @@ async def share_yes_callback(update: Update, context: CallbackContext) -> None:
     # Send video to admins with publish/reject buttons
     user_info = f"{get_text('admin_new_video', user_lang)}\n{update.effective_user.first_name} (@{update.effective_user.username or 'без username'}, ID: {user_id})"
     
-    # Create inline keyboard with publish/reject buttons
+    # Store file_id for admin buttons and get a new short ID
+    admin_short_id = store_file_id(video_note_file_id)
+    
+    # Create inline keyboard with publish/reject buttons using short ID
+    # Ensure callback_data is not too long (max 64 bytes)
+    # Use a shorter prefix to save space
     keyboard = [
         [
             InlineKeyboardButton(
                 get_text("admin_publish", user_lang), 
-                callback_data=f"publish_{video_note_file_id}_{user_id}"
+                callback_data=f"p_{admin_short_id[:6]}_{user_id}"  # Shortened prefix and limited ID length
             ),
             InlineKeyboardButton(
                 get_text("admin_reject", user_lang), 
-                callback_data=f"reject_{video_note_file_id}_{user_id}"
+                callback_data=f"r_{admin_short_id[:6]}_{user_id}"  # Shortened prefix and limited ID length
             )
         ]
     ]
@@ -346,13 +404,21 @@ async def publish_callback(update: Update, context: CallbackContext) -> None:
     if not admin_lang:
         admin_lang = "ru"
     
-    # Extract video_note_file_id and user_id from callback data
-    # Format: publish_<file_id>_<user_id>
+    # Extract short_id and user_id from callback data
+    # Format: p_<short_id>_<user_id> (shortened from publish_<short_id>_<user_id>)
     callback_data = query.data
     parts = callback_data.split('_')
     if len(parts) >= 3:
-        video_note_file_id = parts[1]
+        short_id = parts[1]
         user_id = int(parts[2])
+        
+        # Get the original file_id
+        video_note_file_id = get_file_id(short_id)
+        
+        if not video_note_file_id:
+            await query.edit_message_text(get_text("error_video_expired", admin_lang))
+            logging.error(f"File ID not found for short_id: {short_id}")
+            return
         
         try:
             # Publish video note to channel
@@ -445,12 +511,12 @@ async def reject_callback(update: Update, context: CallbackContext) -> None:
     if not admin_lang:
         admin_lang = "ru"
     
-    # Extract video_note_file_id and user_id from callback data
-    # Format: reject_<file_id>_<user_id>
+    # Extract short_id and user_id from callback data
+    # Format: r_<short_id>_<user_id> (shortened from reject_<short_id>_<user_id>)
     callback_data = query.data
     parts = callback_data.split('_')
     if len(parts) >= 3:
-        video_note_file_id = parts[1]
+        short_id = parts[1]
         user_id = int(parts[2])
         
         # Send rejected message to admin

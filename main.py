@@ -295,12 +295,12 @@ async def run_bot():
     application.add_handler(CallbackQueryHandler(create_circle_prank_callback, pattern=r'^create_circle_prank$'))
     
     # Share video handlers
-    application.add_handler(CallbackQueryHandler(share_yes_callback, pattern=r'^share_yes_'))
-    application.add_handler(CallbackQueryHandler(share_no_callback, pattern=r'^share_no$'))
+    application.add_handler(CallbackQueryHandler(share_yes_callback, pattern=r'^sy_'))
+    application.add_handler(CallbackQueryHandler(share_no_callback, pattern=r'^sn$'))
     
     # Admin moderation handlers
-    application.add_handler(CallbackQueryHandler(publish_callback, pattern=r'^publish_'))
-    application.add_handler(CallbackQueryHandler(reject_callback, pattern=r'^reject_'))
+    application.add_handler(CallbackQueryHandler(publish_callback, pattern=r'^p_'))
+    application.add_handler(CallbackQueryHandler(reject_callback, pattern=r'^r_'))
     
     # Admin panel handlers
     application.add_handler(CommandHandler("admin", admin_handler))
