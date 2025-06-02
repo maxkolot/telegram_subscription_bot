@@ -536,6 +536,17 @@ async def reject_callback(update: Update, context: CallbackContext) -> None:
             logging.info(f"Updated video status to 'published' for short_id: {short_id}")
     except Exception as e:
         logging.error(f"Error updating video status in database: {e}")
+    
+    # Get the original file_id from database or cache
+    video_note_file_id = await get_file_id(short_id)
+    
+    # Log result of file_id lookup
+    logging.info(f"Retrieved file_id for publishing {short_id}: {'Found' if video_note_file_id else 'Not found'}")
+    
+    if not video_note_file_id:
+        await query.edit_message_text(get_text("error_video_expired", admin_lang))
+        logging.error(f"File ID not found for short_id: {short_id}")
+        return
         
     try:
             # Publish video note to channel
