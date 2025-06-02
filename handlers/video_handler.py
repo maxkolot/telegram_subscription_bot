@@ -291,7 +291,7 @@ async def video_handler(update: Update, context: CallbackContext) -> None:
                             callback_data="sn"  # Shortened callback data
                         )
                     ]
-                ]]
+                ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 # Send success message with share buttons
@@ -452,7 +452,9 @@ async def share_no_callback(update: Update, context: CallbackContext) -> None:
         user_lang = "ru"
     
     # Send declined message
-    await query.edit_message_text(get_text("share_declined", user_lang)async def reject_callback(update: Update, context: CallbackContext) -> None:
+    await query.edit_message_text(get_text("share_declined", user_lang))
+
+async def reject_callback(update: Update, context: CallbackContext) -> None:
     """
     Handle reject button callback
     
@@ -507,9 +509,12 @@ async def share_no_callback(update: Update, context: CallbackContext) -> None:
         user_lang = "ru"
     
     if not user_lang:
-        user_lang = "ru"r_video_expired", admin_lang))
-        logging.error(f"File ID not found for short_id: {short_id}")
-        return
+        user_lang = "ru"
+        
+    # Send rejection message to admin
+    await query.edit_message_text(get_text("admin_rejected", admin_lang))
+    
+    # Send notification to user
         
     # Update video status in database
     try:
@@ -579,10 +584,9 @@ async def share_no_callback(update: Update, context: CallbackContext) -> None:
                 text=get_text("user_video_published", user_lang),
                 reply_markup=user_reply_markup
             )
-            
-        except Exception as e:
-            logging.error(f"Error publishing video to channel: {e}")
-            await query.edit_message_text(f"Error: {str(e)}")
+    except Exception as e:
+        logging.error(f"Error publishing video to channel: {e}")
+        await query.edit_message_text(f"Error: {str(e)}")
     else:
         logging.error(f"Invalid callback data format: {callback_data}")
         await query.edit_message_text("Error: Invalid callback data format")
